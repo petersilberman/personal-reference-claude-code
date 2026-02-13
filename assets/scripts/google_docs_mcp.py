@@ -40,7 +40,7 @@ from markdownify import MarkdownConverter
 # OAuth2 scopes - read/write for Docs and Drive
 SCOPES = [
     "https://www.googleapis.com/auth/documents",  # Read/write Google Docs
-    "https://www.googleapis.com/auth/drive.readonly",  # Read access to all Drive files
+    "https://www.googleapis.com/auth/drive",  # Full access to Drive files (needed for file discovery)
 ]
 
 # Paths for credentials and token storage
@@ -928,7 +928,7 @@ class GoogleDocsMarkdownConverter(MarkdownConverter):
     restore tab indentation in the markdown output.
     """
 
-    def convert_li(self, el, text, convert_as_inline, **kwargs):
+    def convert_li(self, el, text, parent_tags, **kwargs):
         parent = el.parent
         level = 0
         if parent:
@@ -938,7 +938,7 @@ class GoogleDocsMarkdownConverter(MarkdownConverter):
                     level = int(m.group(1))
                     break
 
-        result = super().convert_li(el, text, convert_as_inline, **kwargs)
+        result = super().convert_li(el, text, parent_tags, **kwargs)
 
         if level > 0:
             indent = '\t' * level
@@ -1051,7 +1051,8 @@ def fetch_google_doc(
         # Get document metadata
         file_metadata = service.files().get(
             fileId=doc_id,
-            fields="id,name,modifiedTime,owners"
+            fields="id,name,modifiedTime,owners",
+            supportsAllDrives=True
         ).execute()
 
         title = file_metadata.get("name", "Untitled")
@@ -1122,7 +1123,8 @@ def get_google_doc_metadata(
 
         file_metadata = service.files().get(
             fileId=doc_id,
-            fields="id,name,modifiedTime,owners"
+            fields="id,name,modifiedTime,owners",
+            supportsAllDrives=True
         ).execute()
 
         owners = file_metadata.get("owners", [])
@@ -1403,7 +1405,8 @@ def update_google_doc(
         # Get updated metadata
         file_metadata = drive_service.files().get(
             fileId=doc_id,
-            fields="id,name,modifiedTime,webViewLink"
+            fields="id,name,modifiedTime,webViewLink",
+            supportsAllDrives=True
         ).execute()
 
         return {
