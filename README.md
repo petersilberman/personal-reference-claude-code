@@ -2,7 +2,7 @@
 
 Reference implementation for bidirectional sync between local markdown files and cloud services (Google Docs, Notion). Companion code for the blog series "How I AI."
 
-You can read those (blogs)[https://petercto.substack.com/]
+You can read those [blogs](https://petercto.substack.com/)
 
 ## What's Here
 
