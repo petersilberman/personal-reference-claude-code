@@ -1,8 +1,10 @@
 # Personal Reference for Claude Code
 
-Reference implementation for bidirectional sync between local markdown files and cloud services (Google Docs, Notion). Companion code for the blog series "How I AI."
+Reference implementation for bidirectional sync between local markdown files and cloud services (Google Docs, Notion). Companion code for the blog series on my personal AI setup and use of Claude Code. 
 
 You can read those [blogs](https://petercto.substack.com/)
+
+> **Note:** This repo is a reference companion to the [How I AI](https://petercto.substack.com/) blog series — not a supported framework. It's here to show what's possible and inspire your own setup. You will likely hit edge cases or bugs. That's expected. Take what's useful, adapt it to your workflow, and build something that works for you.
 
 ## What's Here
 

@@ -21,7 +21,6 @@ Usage:
     fastmcp run google_docs_mcp.py:mcp
 """
 
-import base64
 import re
 from dataclasses import dataclass
 from enum import Enum
@@ -36,7 +35,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from markdownify import markdownify as md, MarkdownConverter
+from markdownify import MarkdownConverter
 
 # OAuth2 scopes - read/write for Docs and Drive
 SCOPES = [
@@ -187,57 +186,25 @@ def parse_inline_formatting(text: str) -> tuple[str, list[FormattingSpan]]:
         return text, []
 
     # Collect all matches with their positions and types
+    # Each entry: (pattern, content_group, format_type, url_group_or_None)
+    INLINE_PATTERNS = [
+        (r'\[([^\]]+)\]\(([^)]+)\)',       1, FormatType.LINK,        2),
+        (r'\*\*\*([^*]+)\*\*\*',           1, FormatType.BOLD_ITALIC, None),
+        (r'\*\*([^*]+)\*\*',               1, FormatType.BOLD,        None),
+        (r'(?<!\*)\*([^*]+)\*(?!\*)',       1, FormatType.ITALIC,      None),
+        (r'`([^`]+)`',                      1, FormatType.CODE,        None),
+    ]
+
     matches = []
-
-    # Pattern for links: [text](url)
-    for m in re.finditer(r'\[([^\]]+)\]\(([^)]+)\)', text):
-        matches.append({
-            'start': m.start(),
-            'end': m.end(),
-            'content': m.group(1),
-            'format_type': FormatType.LINK,
-            'url': m.group(2)
-        })
-
-    # Pattern for bold+italic: ***text***
-    for m in re.finditer(r'\*\*\*([^*]+)\*\*\*', text):
-        matches.append({
-            'start': m.start(),
-            'end': m.end(),
-            'content': m.group(1),
-            'format_type': FormatType.BOLD_ITALIC,
-            'url': None
-        })
-
-    # Pattern for bold: **text**
-    for m in re.finditer(r'\*\*([^*]+)\*\*', text):
-        matches.append({
-            'start': m.start(),
-            'end': m.end(),
-            'content': m.group(1),
-            'format_type': FormatType.BOLD,
-            'url': None
-        })
-
-    # Pattern for italic: *text* (not preceded/followed by *)
-    for m in re.finditer(r'(?<!\*)\*([^*]+)\*(?!\*)', text):
-        matches.append({
-            'start': m.start(),
-            'end': m.end(),
-            'content': m.group(1),
-            'format_type': FormatType.ITALIC,
-            'url': None
-        })
-
-    # Pattern for inline code: `code`
-    for m in re.finditer(r'`([^`]+)`', text):
-        matches.append({
-            'start': m.start(),
-            'end': m.end(),
-            'content': m.group(1),
-            'format_type': FormatType.CODE,
-            'url': None
-        })
+    for pattern, content_group, format_type, url_group in INLINE_PATTERNS:
+        for m in re.finditer(pattern, text):
+            matches.append({
+                'start': m.start(),
+                'end': m.end(),
+                'content': m.group(content_group),
+                'format_type': format_type,
+                'url': m.group(url_group) if url_group is not None else None
+            })
 
     # Sort by start position and remove overlaps
     matches.sort(key=lambda x: x['start'])
@@ -282,6 +249,31 @@ def parse_inline_formatting(text: str) -> tuple[str, list[FormattingSpan]]:
     return ''.join(clean_text), spans
 
 
+# Mapping from FormatType to (textStyle dict, fields string).
+# FormatType.LINK is handled specially since it needs the span's URL.
+FORMAT_STYLE_MAP = {
+    FormatType.BOLD: (
+        {'bold': True},
+        'bold'
+    ),
+    FormatType.ITALIC: (
+        {'italic': True},
+        'italic'
+    ),
+    FormatType.BOLD_ITALIC: (
+        {'bold': True, 'italic': True},
+        'bold,italic'
+    ),
+    FormatType.CODE: (
+        {
+            'weightedFontFamily': {'fontFamily': 'Courier New'},
+            'backgroundColor': {'color': {'rgbColor': {'red': 0.95, 'green': 0.95, 'blue': 0.95}}}
+        },
+        'weightedFontFamily,backgroundColor'
+    ),
+}
+
+
 def generate_style_requests(spans: list[FormattingSpan], base_index: int) -> list:
     """
     Generate updateTextStyle requests for each formatting span.
@@ -298,50 +290,23 @@ def generate_style_requests(spans: list[FormattingSpan], base_index: int) -> lis
     for span in spans:
         start_idx = base_index + span.start
         end_idx = base_index + span.end
+        range_dict = {'startIndex': start_idx, 'endIndex': end_idx}
 
-        if span.format_type == FormatType.BOLD:
-            requests.append({
-                'updateTextStyle': {
-                    'range': {'startIndex': start_idx, 'endIndex': end_idx},
-                    'textStyle': {'bold': True},
-                    'fields': 'bold'
-                }
-            })
-        elif span.format_type == FormatType.ITALIC:
-            requests.append({
-                'updateTextStyle': {
-                    'range': {'startIndex': start_idx, 'endIndex': end_idx},
-                    'textStyle': {'italic': True},
-                    'fields': 'italic'
-                }
-            })
-        elif span.format_type == FormatType.BOLD_ITALIC:
-            requests.append({
-                'updateTextStyle': {
-                    'range': {'startIndex': start_idx, 'endIndex': end_idx},
-                    'textStyle': {'bold': True, 'italic': True},
-                    'fields': 'bold,italic'
-                }
-            })
-        elif span.format_type == FormatType.LINK:
-            requests.append({
-                'updateTextStyle': {
-                    'range': {'startIndex': start_idx, 'endIndex': end_idx},
-                    'textStyle': {'link': {'url': span.url}},
-                    'fields': 'link'
-                }
-            })
-        elif span.format_type == FormatType.CODE:
-            requests.append({
-                'updateTextStyle': {
-                    'range': {'startIndex': start_idx, 'endIndex': end_idx},
-                    'textStyle': {
-                        'weightedFontFamily': {'fontFamily': 'Courier New'},
-                        'backgroundColor': {'color': {'rgbColor': {'red': 0.95, 'green': 0.95, 'blue': 0.95}}}
-                    },
-                    'fields': 'weightedFontFamily,backgroundColor'
-                }
-            })
+        if span.format_type == FormatType.LINK:
+            text_style = {'link': {'url': span.url}}
+            fields = 'link'
+        elif span.format_type in FORMAT_STYLE_MAP:
+            text_style, fields = FORMAT_STYLE_MAP[span.format_type]
+        else:
+            continue
+
+        requests.append({
+            'updateTextStyle': {
+                'range': range_dict,
+                'textStyle': text_style,
+                'fields': fields
+            }
+        })
 
     return requests
 
@@ -462,73 +427,11 @@ def collect_table(lines: list[str], start_idx: int) -> tuple[list[list[str]], in
     return table_data, i
 
 
-def calculate_cell_index(table_start: int, row: int, col: int, num_cols: int) -> int:
-    """
-    Calculate the text insertion index for a table cell.
-
-    NOTE: This function is DEPRECATED for direct use. Google Docs table structure
-    varies and calculated indices don't reliably match the actual document structure.
-    Use populate_table_cells() with a document fetch instead.
-
-    This function remains for reference but should not be relied upon.
-
-    Args:
-        table_start: Document index where table begins
-        row: Row index (0-based)
-        col: Column index (0-based)
-        num_cols: Number of columns in table
-
-    Returns:
-        Estimated document index (may not be accurate)
-    """
-    # This formula doesn't reliably work - Google Docs table structure is complex
-    # Keeping for reference only
-    row_size = 2 + (num_cols * 3)
-    return table_start + 3 + (row * row_size) + (col * 3)
-
-
 @dataclass
 class TableInfo:
     """Information about a table to be created."""
     data: list[list[str]]  # 2D list of cell content
     insert_index: int      # Where to insert the table
-
-
-def generate_table_create_request(
-    table_data: list[list[str]],
-    current_index: int
-) -> tuple[dict, int]:
-    """
-    Generate a request to create an empty Google Docs table.
-
-    Args:
-        table_data: 2D list of cell content strings (used only for dimensions)
-        current_index: Document index where table starts
-
-    Returns:
-        Tuple of (insertTable request, estimated new current_index after table)
-    """
-    if not table_data or not table_data[0]:
-        return None, current_index
-
-    num_rows = len(table_data)
-    num_cols = len(table_data[0])
-
-    request = {
-        'insertTable': {
-            'rows': num_rows,
-            'columns': num_cols,
-            'location': {'index': current_index}
-        }
-    }
-
-    # Estimate new index after table (will be corrected after actual creation)
-    # Table structure: 1 (table start) + rows * (1 + cols * 2) + 1 (table end) + newlines
-    # This is approximate - actual structure comes from document fetch
-    estimated_size = 2 + num_rows * (1 + num_cols * 2)
-    new_index = current_index + estimated_size
-
-    return request, new_index
 
 
 def generate_table_requests(
@@ -778,10 +681,9 @@ def convert_markdown_segment_to_requests(
     """
     Convert a markdown segment (without tables) to Google Docs API requests.
 
-    This is similar to convert_markdown_to_docs_requests but:
-    - Accepts a starting index parameter
-    - Does NOT handle tables (they're processed separately)
-    - Returns the new current_index after all content
+    Handles headings, paragraphs, bullet/numbered lists, code blocks, and
+    inline formatting (bold, italic, links, inline code). Tables are handled
+    separately via split_markdown_at_tables + generate_table_requests.
 
     Args:
         markdown: Markdown content (should not contain tables)
@@ -792,6 +694,12 @@ def convert_markdown_segment_to_requests(
     """
     requests = []
     current_index = start_index
+
+    # Each entry: (pattern, text_group_index, bullet_preset)
+    list_patterns = [
+        (r'^(\t*)[-*]\s+(.+)$',       2, 'BULLET_DISC_CIRCLE_SQUARE'),
+        (r'^(\t*)(\d+)\.\s+(.+)$',    3, 'NUMBERED_DECIMAL_ALPHA_ROMAN'),
+    ]
 
     lines = markdown.split('\n')
     i = 0
@@ -884,92 +792,51 @@ def convert_markdown_segment_to_requests(
             i += 1
             continue
 
-        # Detect unordered list (with optional tab indentation for nesting)
-        list_match = re.match(r'^(\t*)[-*]\s+(.+)$', line)
-        if list_match:
-            indent_level = len(list_match.group(1))
-            raw_text = list_match.group(2)
+        # Detect unordered or ordered list (with optional tab indentation for nesting)
+        list_matched = False
+        for list_pattern, text_group, bullet_preset in list_patterns:
+            list_match = re.match(list_pattern, line)
+            if list_match:
+                indent_level = len(list_match.group(1))
+                raw_text = list_match.group(text_group)
+                clean_text, spans = parse_inline_formatting(raw_text)
 
-            # Parse inline formatting
-            clean_text, spans = parse_inline_formatting(raw_text)
+                # Insert clean text
+                requests.append({
+                    'insertText': {
+                        'location': {'index': current_index},
+                        'text': clean_text + '\n'
+                    }
+                })
 
-            # Insert clean text
-            requests.append({
-                'insertText': {
-                    'location': {'index': current_index},
-                    'text': clean_text + '\n'
-                }
-            })
+                # Apply bullet/numbered list
+                end_idx = current_index + len(clean_text) + 1
+                requests.append({
+                    'createParagraphBullets': {
+                        'range': {
+                            'startIndex': current_index,
+                            'endIndex': end_idx
+                        },
+                        'bulletPreset': bullet_preset
+                    }
+                })
 
-            # Apply bullet list
-            requests.append({
-                'createParagraphBullets': {
-                    'range': {
-                        'startIndex': current_index,
-                        'endIndex': current_index + len(clean_text) + 1
-                    },
-                    'bulletPreset': 'BULLET_DISC_CIRCLE_SQUARE'
-                }
-            })
+                # Apply nesting indentation for sub-items
+                if indent_level > 0:
+                    requests.append(generate_nesting_request(
+                        current_index, end_idx, indent_level
+                    ))
 
-            # Apply nesting indentation for sub-bullets
-            if indent_level > 0:
-                requests.append(generate_nesting_request(
-                    current_index,
-                    current_index + len(clean_text) + 1,
-                    indent_level
-                ))
+                # Apply inline formatting
+                style_requests = generate_style_requests(spans, current_index)
+                requests.extend(style_requests)
 
-            # Apply inline formatting
-            style_requests = generate_style_requests(spans, current_index)
-            requests.extend(style_requests)
+                current_index = end_idx
+                i += 1
+                list_matched = True
+                break
 
-            current_index += len(clean_text) + 1
-            i += 1
-            continue
-
-        # Detect ordered list (with optional tab indentation for nesting)
-        ordered_list_match = re.match(r'^(\t*)(\d+)\.\s+(.+)$', line)
-        if ordered_list_match:
-            indent_level = len(ordered_list_match.group(1))
-            raw_text = ordered_list_match.group(3)
-
-            # Parse inline formatting
-            clean_text, spans = parse_inline_formatting(raw_text)
-
-            # Insert clean text
-            requests.append({
-                'insertText': {
-                    'location': {'index': current_index},
-                    'text': clean_text + '\n'
-                }
-            })
-
-            # Apply numbered list
-            requests.append({
-                'createParagraphBullets': {
-                    'range': {
-                        'startIndex': current_index,
-                        'endIndex': current_index + len(clean_text) + 1
-                    },
-                    'bulletPreset': 'NUMBERED_DECIMAL_ALPHA_ROMAN'
-                }
-            })
-
-            # Apply nesting indentation for sub-items
-            if indent_level > 0:
-                requests.append(generate_nesting_request(
-                    current_index,
-                    current_index + len(clean_text) + 1,
-                    indent_level
-                ))
-
-            # Apply inline formatting
-            style_requests = generate_style_requests(spans, current_index)
-            requests.extend(style_requests)
-
-            current_index += len(clean_text) + 1
-            i += 1
+        if list_matched:
             continue
 
         # Regular paragraph
@@ -1050,247 +917,6 @@ def generate_nesting_request(start_index: int, end_index: int, indent_level: int
             'fields': 'indentFirstLine,indentStart'
         }
     }
-
-
-def convert_markdown_to_docs_requests(markdown: str) -> tuple[list, list[TableInfo]]:
-    """
-    Convert Markdown to Google Docs API batch update requests.
-
-    Supports:
-    - Headings (# ## ###)
-    - Paragraphs
-    - Lists (- and 1.)
-    - Bold (**text**)
-    - Italic (*text*)
-    - Bold+Italic (***text***)
-    - Links ([text](url))
-    - Inline code (`code`)
-    - Code blocks (```...```)
-    - Tables (|col1|col2| with separator row)
-
-    Args:
-        markdown: Markdown content to convert
-
-    Returns:
-        Tuple of (list of request objects, list of TableInfo for two-phase population)
-    """
-    requests = []
-    tables_to_populate = []  # Collect tables for second-phase population
-    current_index = 1  # Start at index 1 (after the initial newline)
-
-    # Split markdown into lines for processing
-    lines = markdown.split('\n')
-    i = 0
-
-    while i < len(lines):
-        line = lines[i]
-        line_stripped = line.strip()
-
-        # Skip empty lines (but add a paragraph break)
-        if not line_stripped:
-            requests.append({
-                'insertText': {
-                    'location': {'index': current_index},
-                    'text': '\n'
-                }
-            })
-            current_index += 1
-            i += 1
-            continue
-
-        # Detect code block
-        if line_stripped.startswith('```'):
-            code_lines, next_i = collect_code_block(lines, i)
-            if code_lines:
-                code_text = '\n'.join(code_lines) + '\n'
-
-                # Insert code text
-                requests.append({
-                    'insertText': {
-                        'location': {'index': current_index},
-                        'text': code_text
-                    }
-                })
-
-                # Apply monospace font to code block
-                requests.append({
-                    'updateTextStyle': {
-                        'range': {
-                            'startIndex': current_index,
-                            'endIndex': current_index + len(code_text)
-                        },
-                        'textStyle': {
-                            'weightedFontFamily': {'fontFamily': 'Courier New'},
-                            'backgroundColor': {'color': {'rgbColor': {'red': 0.95, 'green': 0.95, 'blue': 0.95}}}
-                        },
-                        'fields': 'weightedFontFamily,backgroundColor'
-                    }
-                })
-
-                current_index += len(code_text)
-            i = next_i
-            continue
-
-        # Detect markdown table (line with | followed by separator line)
-        if '|' in line_stripped and i + 1 < len(lines) and is_table_separator(lines[i + 1]):
-            table_data, next_i = collect_table(lines, i)
-            if table_data:
-                table_requests, current_index, table_info = generate_table_requests(table_data, current_index)
-                requests.extend(table_requests)
-                if table_info:
-                    tables_to_populate.append(table_info)
-                i = next_i
-                continue
-
-        # Detect heading level
-        heading_match = re.match(r'^(#{1,6})\s+(.+)$', line_stripped)
-        if heading_match:
-            level = len(heading_match.group(1))
-            raw_text = heading_match.group(2)
-
-            # Parse inline formatting
-            clean_text, spans = parse_inline_formatting(raw_text)
-
-            # Insert clean text
-            requests.append({
-                'insertText': {
-                    'location': {'index': current_index},
-                    'text': clean_text + '\n'
-                }
-            })
-
-            # Apply heading style
-            requests.append({
-                'updateParagraphStyle': {
-                    'range': {
-                        'startIndex': current_index,
-                        'endIndex': current_index + len(clean_text) + 1
-                    },
-                    'paragraphStyle': {
-                        'namedStyleType': f'HEADING_{level}'
-                    },
-                    'fields': 'namedStyleType'
-                }
-            })
-
-            # Apply inline formatting
-            style_requests = generate_style_requests(spans, current_index)
-            requests.extend(style_requests)
-
-            current_index += len(clean_text) + 1
-            i += 1
-            continue
-
-        # Detect unordered list (with optional tab indentation for nesting)
-        list_match = re.match(r'^(\t*)[-*]\s+(.+)$', line)
-        if list_match:
-            indent_level = len(list_match.group(1))
-            raw_text = list_match.group(2)
-
-            # Parse inline formatting
-            clean_text, spans = parse_inline_formatting(raw_text)
-
-            # Insert clean text
-            requests.append({
-                'insertText': {
-                    'location': {'index': current_index},
-                    'text': clean_text + '\n'
-                }
-            })
-
-            # Apply bullet list
-            requests.append({
-                'createParagraphBullets': {
-                    'range': {
-                        'startIndex': current_index,
-                        'endIndex': current_index + len(clean_text) + 1
-                    },
-                    'bulletPreset': 'BULLET_DISC_CIRCLE_SQUARE'
-                }
-            })
-
-            # Apply nesting indentation for sub-bullets
-            if indent_level > 0:
-                requests.append(generate_nesting_request(
-                    current_index,
-                    current_index + len(clean_text) + 1,
-                    indent_level
-                ))
-
-            # Apply inline formatting
-            style_requests = generate_style_requests(spans, current_index)
-            requests.extend(style_requests)
-
-            current_index += len(clean_text) + 1
-            i += 1
-            continue
-
-        # Detect ordered list (with optional tab indentation for nesting)
-        ordered_list_match = re.match(r'^(\t*)(\d+)\.\s+(.+)$', line)
-        if ordered_list_match:
-            indent_level = len(ordered_list_match.group(1))
-            raw_text = ordered_list_match.group(3)
-
-            # Parse inline formatting
-            clean_text, spans = parse_inline_formatting(raw_text)
-
-            # Insert clean text
-            requests.append({
-                'insertText': {
-                    'location': {'index': current_index},
-                    'text': clean_text + '\n'
-                }
-            })
-
-            # Apply numbered list
-            requests.append({
-                'createParagraphBullets': {
-                    'range': {
-                        'startIndex': current_index,
-                        'endIndex': current_index + len(clean_text) + 1
-                    },
-                    'bulletPreset': 'NUMBERED_DECIMAL_ALPHA_ROMAN'
-                }
-            })
-
-            # Apply nesting indentation for sub-items
-            if indent_level > 0:
-                requests.append(generate_nesting_request(
-                    current_index,
-                    current_index + len(clean_text) + 1,
-                    indent_level
-                ))
-
-            # Apply inline formatting
-            style_requests = generate_style_requests(spans, current_index)
-            requests.extend(style_requests)
-
-            current_index += len(clean_text) + 1
-            i += 1
-            continue
-
-        # Regular paragraph
-        raw_text = line_stripped
-
-        # Parse inline formatting
-        clean_text, spans = parse_inline_formatting(raw_text)
-
-        # Insert the clean text
-        requests.append({
-            'insertText': {
-                'location': {'index': current_index},
-                'text': clean_text + '\n'
-            }
-        })
-
-        # Apply inline formatting
-        style_requests = generate_style_requests(spans, current_index)
-        requests.extend(style_requests)
-
-        current_index += len(clean_text) + 1
-        i += 1
-
-    return requests, tables_to_populate
 
 
 class GoogleDocsMarkdownConverter(MarkdownConverter):
