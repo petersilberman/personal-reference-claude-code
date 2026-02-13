@@ -1,0 +1,13 @@
+[project]
+name = "personal-reference-claude-code"
+version = "0.1.0"
+description = "Claude Code commands, skills, and MCP servers for AI personal infrastructure"
+requires-python = ">=3.10"
+dependencies = [
+    "fastmcp",
+    "google-api-python-client",
+    "google-auth",
+    "google-auth-oauthlib",
+    "beautifulsoup4",
+    "markdownify",
+]

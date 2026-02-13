@@ -1,0 +1,30 @@
+{
+  "mcpServers": {
+    "chrome-devtools": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "chrome-devtools-mcp@latest"
+      ],
+      "env": {}
+    },
+    "Notion": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@notionhq/notion-mcp-server"
+      ],
+      "env": {
+        "NOTION_TOKEN": "<TOKEN HERE>"
+      }
+    },
+    "google-docs": {
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "assets/scripts/google_docs_mcp.py"
+      ]
+    }
+  }
+}
