@@ -164,4 +164,4 @@ This code accompanies the "How I AI" blog series:
 
 - [Post 1: Foundation (directory structure)](https://petercto.substack.com/p/the-foundation-your-filesystem-and)
 - [Post 2: Sync Gdoc / Notion](https://petercto.substack.com/p/sync-bringing-collaboration-to-your)
-- [Post 3: Task Routing]() — Bidirectional Google Tasks ↔ Obsidian sync with hashtag routing
+- [Post 3: Task Routing](https://petercto.substack.com/p/task-routing-capture-anywhere-surface) — Bidirectional Google Tasks ↔ Obsidian sync with hashtag routing
