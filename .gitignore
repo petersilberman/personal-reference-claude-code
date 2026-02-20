@@ -11,6 +11,9 @@ __pycache__/
 venv/
 .env
 
+# Runtime sync state
+task_sync_mapping.json
+
 # OS
 .DS_Store
 Thumbs.db

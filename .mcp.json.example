@@ -25,6 +25,13 @@
       "args": [
         "assets/scripts/google_docs_mcp.py"
       ]
+    },
+    "google-calendar": {
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "assets/scripts/google_calendar_mcp.py"
+      ]
     }
   }
 }
