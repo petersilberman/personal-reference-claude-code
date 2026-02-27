@@ -13,9 +13,24 @@ You can read those [blogs](https://petercto.substack.com/)
 ├── commands/
 │   ├── gdoc-sync.md            # /gdoc-sync command
 │   ├── notion-sync.md          # /notion-sync command
+│   ├── summarize.md            # /summarize command — multi-agent summarization
 │   └── sync-tasks.md           # /sync-tasks command
-└── skills/
-    └── sync-protocol.md        # Shared sync patterns
+├── skills/
+│   └── sync-protocol.md        # Shared sync patterns
+└── workflows/
+    ├── content/                 # Content summarization workflow
+    │   └── agents/
+    │       ├── planner.md       # Content analysis & research TODO generation
+    │       ├── summarizer.md    # Prose synthesis from clean inputs
+    │       └── validator.md     # Comprehension-based quality check
+    └── research/                # Shared research capabilities
+        ├── agents/
+        │   └── executor.md      # MCP-powered research execution
+        └── skills/
+            ├── link-summarization.md  # Summarize linked content (one level deep)
+            ├── person-research.md     # Research people via Perplexity
+            ├── tech-research.md       # Research technologies
+            └── term-definition.md     # Write accessible glossary entries
 
 assets/
 └── scripts/
@@ -37,6 +52,29 @@ This repo includes two files that mirror a real Obsidian vault layout:
 - **`capture/google-tasks-inbox.md`** — The landing zone where `/sync-tasks pull` drops new tasks from Google. Tasks sit here temporarily until you triage them into the right files (1-1 notes, project docs, etc.). Each task carries a `^gtask-{id}` block reference that links it back to Google Tasks for bidirectional sync.
 
 ## Commands
+
+### `/summarize`
+
+Multi-agent content summarization that produces educational prose — not bullet-point extractions. Four agents work in sequence: a **planner** analyzes the content and builds a research TODO, an **executor** runs MCP-powered lookups (Perplexity for terms/people/tech, Firecrawl for links), a **summarizer** writes flowing prose organized by importance, and a **validator** generates comprehension questions to verify the summary actually teaches.
+
+```bash
+# Summarize a file
+/summarize path/to/article.md
+
+# Summarize a URL
+/summarize https://example.com/interesting-post
+
+# Summarize pasted content
+/summarize [paste content]
+```
+
+**What makes it different from a single-prompt summary:**
+- Content is analyzed in thirds (beginning/middle/end) so the middle doesn't get skimmed
+- Research is executed separately from writing — no noise bleeding into the output
+- Output is prose organized by importance, not a sequential retelling
+- Validation ensures you could actually explain the ideas to someone else
+
+**Requires MCP servers:** Perplexity (research lookups) and Firecrawl (link scraping). Falls back to WebSearch/WebFetch if unavailable.
 
 ### `/gdoc-sync`
 
@@ -165,3 +203,4 @@ This code accompanies the "How I AI" blog series:
 - [Post 1: Foundation (directory structure)](https://petercto.substack.com/p/the-foundation-your-filesystem-and)
 - [Post 2: Sync Gdoc / Notion](https://petercto.substack.com/p/sync-bringing-collaboration-to-your)
 - [Post 3: Task Routing](https://petercto.substack.com/p/task-routing-capture-anywhere-surface) — Bidirectional Google Tasks ↔ Obsidian sync with hashtag routing
+- [Post 4: Multi-Agent Summarization](https://open.substack.com/pub/petercto/p/multi-agent-summarization-from-content) — Four agents that turn content into educational prose you can actually use
